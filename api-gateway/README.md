@@ -1,1 +1,1 @@
-this folder contains the api gateway
+this folder contains the api gateway mvn project
