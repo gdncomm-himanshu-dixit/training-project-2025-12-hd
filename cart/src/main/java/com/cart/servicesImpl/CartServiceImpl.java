@@ -4,9 +4,11 @@ import com.cart.dto.AddToCartRequestDTO;
 import com.cart.dto.CartResponseDTO;
 import com.cart.dto.external.ProductDTO;
 import com.cart.dto.external.ProductResponseWrapper;
+import com.cart.dto.external.ExistsResponseDTO;
 import com.cart.entity.CartEntity;
 import com.cart.entity.CartItem;
 import com.cart.exception.CartNotFoundException;
+import com.cart.feign.MemberFeignClient;
 import com.cart.feign.ProductFeignClient;
 import com.cart.repositories.CartRepository;
 import com.cart.services.CartService;
@@ -24,26 +26,21 @@ public class CartServiceImpl implements CartService {
 
     private final CartRepository cartRepository;
     private final ProductFeignClient productFeignClient;
+    private final MemberFeignClient memberFeignClient;
 
-//    public CartServiceImpl(CartRepository cartRepository,
-//                           ProductFeignClient productFeignClient) {
-//        this.cartRepository = cartRepository;
-//        this.productFeignClient = productFeignClient;
-//    }
-
-    /**
-     * Requirement:
-     * - Add item to cart
-     * - Validate product using Feign
-     * - If already exists: increase quantity
-     */
+    // -------------------------------------------------------
+    // ADD TO CART
+    // -------------------------------------------------------
     @Override
-    public CartResponseDTO addToCart(AddToCartRequestDTO request) {
+    public CartResponseDTO addToCart(String userId, AddToCartRequestDTO request) {
 
         log.info("Add to cart: user={}, product={}, qty={}",
-                request.getUserId(), request.getProductId(), request.getQuantity());
+                userId, request.getProductId(), request.getQuantity());
 
-        //Fetch product details from product-service using Feign
+        // Validate user exists
+        validateUserExists(userId);
+
+        // Fetch product details
         ProductResponseWrapper productWrapper =
                 productFeignClient.getProductById(request.getProductId());
 
@@ -51,92 +48,121 @@ public class CartServiceImpl implements CartService {
             throw new RuntimeException("Product not found in product-service");
         }
 
-        ProductDTO productData = productWrapper.getData();
-        double price = productData.getProductUnitPrice();
+        ProductDTO product = productWrapper.getData();
 
-        // Fetch existing cart or create new
-        CartEntity cart = cartRepository.findById(request.getUserId())
-                .orElse(new CartEntity(request.getUserId(), 0, new ArrayList<>()));
+        // Load or create cart
+        CartEntity cart = cartRepository.findById(userId)
+                .orElse(new CartEntity(userId, 0, new ArrayList<>()));
 
-        // Check if product exists in cart
-        Optional<CartItem> existingItem = cart.getItems()
-                .stream()
+        // Check if product already exists
+        Optional<CartItem> existing = cart.getItems().stream()
                 .filter(i -> i.getProductId().equals(request.getProductId()))
                 .findFirst();
 
-        if (existingItem.isPresent()) {
-            // Increase quantity
-            existingItem.get().setQuantity(
-                    existingItem.get().getQuantity() + request.getQuantity()
+        if (existing.isPresent()) {
+            existing.get().setQuantity(
+                    existing.get().getQuantity() + request.getQuantity()
             );
         } else {
-            // Add new item to cart
-            cart.getItems().add(new CartItem(productData.getProductId(), request.getQuantity()));
+            cart.getItems().add(new CartItem(product.getProductId(), request.getQuantity()));
         }
 
-        //Recalculate total using REAL price
+        // Recalculate cart total
         cart.setTotalCartPrice(calculateTotalPrice(cart));
 
-        // Save
         cartRepository.save(cart);
 
         return convertToDTO(cart);
     }
 
-    /** View cart */
+    // -------------------------------------------------------
+    // VIEW CART
+    // -------------------------------------------------------
     @Override
     public CartResponseDTO viewCart(String userId) {
 
+        log.info("Fetching cart for user {}", userId);
+
+        validateUserExists(userId);
+
         CartEntity cart = cartRepository.findById(userId)
-                .orElseThrow(() -> new CartNotFoundException("Cart not found for user: " + userId));
+                .orElseThrow(() ->
+                        new CartNotFoundException("Cart not found for user: " + userId)
+                );
 
         return convertToDTO(cart);
     }
 
-    /**
-     * Requirement:
-     * - Remove one product from cart
-     */
+    // -------------------------------------------------------
+    // REMOVE PRODUCT
+    // -------------------------------------------------------
     @Override
     public CartResponseDTO removeProduct(String userId, String productId) {
 
-        CartEntity cart = cartRepository.findById(userId)
-                .orElseThrow(() -> new CartNotFoundException("Cart not found for user: " + userId));
+        log.info("Removing product {} from cart of user {}", productId, userId);
 
-        cart.getItems().removeIf(item -> item.getProductId().equals(productId));
+        validateUserExists(userId);
+
+        CartEntity cart = cartRepository.findById(userId)
+                .orElseThrow(() ->
+                        new CartNotFoundException("Cart not found for user: " + userId)
+                );
+
+        boolean removed = cart.getItems().removeIf(item -> item.getProductId().equals(productId));
+
+        if (!removed) {
+            log.warn("Product {} not found in cart for user {}", productId, userId);
+        }
 
         cart.setTotalCartPrice(calculateTotalPrice(cart));
-
         cartRepository.save(cart);
 
         return convertToDTO(cart);
     }
 
-    /** Calculates total price on fly by fetching from product via Feign */
+    // -------------------------------------------------------
+    // HELPER: Validate User Exists
+    // -------------------------------------------------------
+    private void validateUserExists(String userId) {
+
+        ExistsResponseDTO response = memberFeignClient.existsById(userId);
+
+        boolean exists = response != null && Boolean.TRUE.equals(response.getData());
+
+        if (!exists) {
+            log.error("User {} does NOT exist in member-service", userId);
+            throw new RuntimeException("User does not exist");
+        }
+    }
+
+    // -------------------------------------------------------
+    // HELPER: Calculate Total Price (always fresh from product-service)
+    // -------------------------------------------------------
     private double calculateTotalPrice(CartEntity cart) {
 
         double total = 0;
 
         for (CartItem item : cart.getItems()) {
 
-            // Fetch product price
-            ProductResponseWrapper productWrapper =
+            ProductResponseWrapper wrapper =
                     productFeignClient.getProductById(item.getProductId());
 
-            if (productWrapper == null || productWrapper.getData() == null) {
-                throw new RuntimeException("Unable to fetch product price");
+            if (wrapper == null || wrapper.getData() == null) {
+                throw new RuntimeException("Unable to fetch product price for cart calculation");
             }
 
-            double price = productWrapper.getData().getProductUnitPrice();
-
+            double price = wrapper.getData().getProductUnitPrice();
             total += price * item.getQuantity();
         }
 
         return total;
     }
 
-    /**  Convert Entity to DTO */
+    // -------------------------------------------------------
+    // HELPER: Convert Entity → DTO
+    // -------------------------------------------------------
     private CartResponseDTO convertToDTO(CartEntity cart) {
+
         return CartResponseDTO.builder()
                 .userId(cart.getCartId())
                 .totalPrice(cart.getTotalCartPrice())

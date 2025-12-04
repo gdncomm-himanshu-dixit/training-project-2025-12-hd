@@ -9,4 +9,5 @@ public class GenericResponseDTO<T> {
     private String status;
     private String message;
     private T data;
+    private Integer statusCode;
 }

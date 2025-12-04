@@ -6,7 +6,7 @@ import com.cart.dto.CartResponseDTO;
 public interface CartService {
 
     // Add or update quantity for a product
-    CartResponseDTO addToCart(AddToCartRequestDTO request);
+    CartResponseDTO addToCart(String userId, AddToCartRequestDTO request);
 
     // Get all items for a user
     CartResponseDTO viewCart(String userId);
