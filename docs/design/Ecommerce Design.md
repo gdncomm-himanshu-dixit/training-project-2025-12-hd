@@ -248,4 +248,10 @@ Downstream services should **NOT** trust incoming user headers and must rely **o
 ┌──────────┐         ┌──────────┐
 │PostgreSQL│         │ MongoDB  │
 └──────────┘         └──────────┘
+
 ```
+
+
+**Future Enhancements - **
+1.Making main gateway lightweight by moving Logout Controller to Internal Gateway
+2.Refresh token
