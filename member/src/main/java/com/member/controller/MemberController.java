@@ -4,6 +4,7 @@ import com.member.dto.MemberLoginRequestDTO;
 import com.member.dto.MemberRegisterRequestDTO;
 import com.member.dto.MemberResponse;
 import com.member.repositories.MemberRepository;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -48,7 +49,7 @@ public class MemberController {
 
     /** Customer Login */
     @PostMapping("/login")
-    public GenericResponseDTO<MemberResponse> login(@RequestBody MemberLoginRequestDTO request) {
+    public GenericResponseDTO<MemberResponse> login(@Valid @RequestBody MemberLoginRequestDTO request) {
         log.info("Member login initiated");
         return GenericResponseDTO.<MemberResponse>builder()
                 .status("SUCCESS")

@@ -1,4 +1,5 @@
 package com.member.dto;
+import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
 @Data
@@ -9,8 +10,11 @@ public class MemberLoginRequestDTO {
     /*** Req Mapping: Customer Login */
 
 
-        private String userName;
-        private String password;
+    @NotBlank(message = "Username cannot be empty")
+    private String userName;
+
+    @NotBlank(message = "Password cannot be empty")
+    private String password;
     }
 
 
